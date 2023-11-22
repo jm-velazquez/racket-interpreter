@@ -534,7 +534,16 @@
   "Lee una cadena desde la terminal/consola. Si contiene parentesis de menos al presionar Enter/Intro,
   se considera que la cadena ingresada es una subcadena y el ingreso continua. De lo contrario, se la
   devuelve completa (si corresponde, advirtiendo previamente que hay parentesis de mas)."
-[]
+  ([] (leer-entrada (read-line) 0))
+  ([cadena offset]
+    (let [nuevo-offset (+ offset (verificar-parentesis cadena))]
+      (cond
+        (= nuevo-offset 0) cadena
+        (> nuevo-offset 0) (str cadena (leer-entrada (read-line) nuevo-offset))
+        :else (do (print ";WARNING: unexpected \")\"#<input-port 0>") cadena)
+      )
+    )
+  )
 )
 
 ; user=> (verificar-parentesis "(hola 'mundo")
@@ -549,7 +558,10 @@
 ; 0
 (defn verificar-parentesis
   "Cuenta los parentesis en una cadena, sumando 1 si `(`, restando 1 si `)`. Si el contador se hace negativo, para y retorna -1."
-[]
+  [cadena]
+  (let [frecuencias (clojure.walk/keywordize-keys (frequencies cadena))]
+    (max -1 (- (or (get frecuencias '\( ) 0) (or (get frecuencias '\)) 0)))
+  )
 )
 
 ; user=> (actualizar-amb '(a 1 b 2 c 3) 'd 4)
@@ -595,7 +607,24 @@
 ; ""
 (defn proteger-bool-en-str
   "Cambia, en una cadena, #t por %t y #f por %f, para poder aplicarle read-string."
-[]
+  [cadena]
+  (clojure.string/replace
+    (clojure.string/replace
+      (clojure.string/replace
+        (clojure.string/replace
+          cadena
+          #"#F"
+          "%F"
+        )
+        #"#T"
+        "%T"
+      )
+      #"#f"
+      "%f"
+    )
+    #"#t"
+    "%t"
+  )
 )
 
 ; user=> (restaurar-bool (read-string (proteger-bool-en-str "(and (or #F #f #t #T) #T)")))
@@ -604,7 +633,8 @@
 ; (and (or #F #f #t #T) #T)
 (defn restaurar-bool
   "Cambia, en un codigo leido con read-string, %t por #t y %f por #f."
-[]
+  ;; [expre] (replace {'%T '#T, '%t '#t, '%F '#F, '%f '#f} expre)
+  [expre] (postwalk-replace {'%T (symbol "#T"), '%t (symbol "#t"), '%F (symbol "#F"), '%f (symbol "#f")} expre)
 )
 
 ; user=> (fnc-append '( (1 2) (3) (4 5) (6 7)))
