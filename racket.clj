@@ -119,6 +119,9 @@
         (not (seq? expre))             (evaluar-escalar expre amb)
 
         (= (first expre) 'define) (evaluar-define expre amb)
+        (= (first expre) 'enter!) (evaluar-enter! expre amb)
+        (= (first expre) 'lambda) (evaluar-lambda expre amb)
+        (= (first expre) 'exit)   (evaluar-exit   expre amb)
 
          ;
          ;
@@ -182,8 +185,27 @@
   "Aplica una funcion primitiva a una `lae` (lista de argumentos evaluados)."
   [fnc lae amb]
   (cond
+    (= fnc 'car)          (fnc-car lae)
+    (= fnc 'cdr)          (fnc-cdr lae)
+    (= fnc 'cons)         (fnc-cons lae)
+    (= fnc 'display)      (fnc-display lae)
+    (= fnc 'env)          (fnc-env lae amb)
+    (= fnc 'length)       (fnc-length lae)
+    (= fnc 'list)         (fnc-list lae)
+    (= fnc 'list?)        (fnc-list? lae)
+    (= fnc 'newline)      (fnc-newline lae)
+    (= fnc 'not)          (fnc-not lae)
+    (= fnc 'null?)        (fnc-null? lae)
+    (= fnc 'reverse)      (fnc-reverse lae)
+    (= fnc 'append)       (fnc-append lae)
+    (= fnc 'equal?)       (fnc-equal? lae)
+    (= fnc 'read)         (fnc-read lae)
+    (= fnc '+)            (fnc-sumar lae)
+    (= fnc '-)            (fnc-restar lae)
     (= fnc '<)            (fnc-menor lae)
-    
+    (= fnc '>)            (fnc-mayor lae)
+    (= fnc '>=)           (fnc-mayor-o-igual lae)
+
     ;
     ; COMPLETAR
     ;
@@ -575,7 +597,11 @@
 (defn actualizar-amb
   "Devuelve un ambiente actualizado con una clave (nombre de la variable o funcion) y su valor. 
   Si el valor es un error, el ambiente no se modifica. De lo contrario, se le carga o reemplaza la nueva informacion."
-[]
+[amb key value] (cond
+    (error? value) amb
+    (.contains amb key) (seq (assoc (vec amb) (+ 1 (.indexOf amb key)) value))
+    :else (concat amb (list key value))
+  )
 )
 
 ; user=> (buscar 'c '(a 1 b 2 c 3 d 4 e 5))
@@ -585,7 +611,11 @@
 (defn buscar
   "Busca una clave en un ambiente (una lista con claves en las posiciones impares [1, 3, 5...] y valores en las pares [2, 4, 6...]
    y devuelve el valor asociado. Devuelve un error :unbound-variable si no la encuentra."
-[]
+  [key amb]
+  (cond
+    (and (.contains amb key) (even? (.indexOf amb key))) (get (vec amb) (+ 1 (.indexOf amb key)))
+    :else (generar-mensaje-error :unbound-variable key)
+  )
 )
 
 ; user=> (error? (list (symbol ";ERROR:") 'mal 'hecho))
@@ -596,7 +626,11 @@
 ; true
 (defn error?
   "Devuelve true o false, segun sea o no el arg. una lista con `;ERROR:` o `;WARNING:` como primer elemento."
-[]
+  [lista]
+  (cond
+    (not (seq? lista)) false
+    :else (or (= (first lista) (symbol ";ERROR:")) (= (first lista) (symbol ";WARNING:")))
+  )
 )
 
 ; user=> (proteger-bool-en-str "(or #f #t)")
@@ -645,7 +679,12 @@
 ; (;ERROR: append: Wrong type in arg A)
 (defn fnc-append
   "Devuelve el resultado de fusionar listas."
-[]
+  [lae] (let [wrong-type-args (filter (comp not seq?) lae)]
+    (cond
+      (not (empty? wrong-type-args)) (generar-mensaje-error :wrong-type-arg 'append (first wrong-type-args))
+      :else (reduce concat lae)
+    )
+  )
 )
 
 ; user=> (fnc-equal? ())
@@ -666,7 +705,23 @@
 ; #f
 (defn fnc-equal?
   "Compara elementos. Si son iguales, devuelve #t. Si no, #f."
-[]
+  [lae]
+  (cond
+    (empty? lae) (symbol "#t")
+    (every? number? lae)
+      (cond
+        (reduce (fn [x y] (and x y)) (map (partial = (first lae)) lae)) (symbol "#t")
+        :else (symbol "#f")
+      )
+    (every? symbol? lae)
+      (let [lae-simplificada (map (fn [x] (symbol (.toUpperCase (str x)))) lae)]
+        (cond
+          (reduce (fn [x y] (and x y)) (map (partial = (first lae-simplificada)) lae-simplificada)) (symbol "#t")
+          :else (symbol "#f")
+        )
+      )
+    :else (symbol "#f")
+  )
 )
 
 ; user=> (fnc-read ())
@@ -681,7 +736,22 @@
 ; (;ERROR: Wrong number of args given #<primitive-procedure read>)
 (defn fnc-read
   "Devuelve la lectura de un elemento de Racket desde la terminal/consola."
-[]
+  ([lae]
+    (cond
+      (= 1 (count lae)) (generar-mensaje-error :io-ports-not-implemented 'read)
+      (< 1 (count lae)) (generar-mensaje-error :wrong-number-args-prim-proc 'read)
+      :else (fnc-read (read-line) 0)
+    )
+  )
+  ([cadena offset]
+    (let [nuevo-offset (+ offset (verificar-parentesis cadena))]
+      (cond
+        (= nuevo-offset 0) cadena
+        (> nuevo-offset 0) (str cadena (leer-entrada (read-line) nuevo-offset))
+        :else (do (print ";WARNING: unexpected \")\"#<input-port 0>") cadena)
+      )
+    )
+  )
 )
 
 ; user=> (fnc-sumar ())
@@ -702,7 +772,20 @@
 ; (;ERROR: +: Wrong type in arg2 A)
 (defn fnc-sumar
   "Suma los elementos de una lista."
-[]
+  [lae]
+  (cond
+    (empty? lae) '0
+    :else (let [wrong-type-args (filter (comp not number?) lae)]
+      (cond
+        (not (empty? wrong-type-args))
+          (cond
+            (= 0 (.indexOf lae (first wrong-type-args))) (generar-mensaje-error :wrong-type-arg1 '+ (first wrong-type-args))
+            :else (generar-mensaje-error :wrong-type-arg2 '+ (first wrong-type-args))
+          )
+        :else (reduce + lae)
+      )
+    )
+  )
 )
 
 ; user=> (fnc-restar ())
@@ -723,7 +806,20 @@
 ; (;ERROR: -: Wrong type in arg2 A)
 (defn fnc-restar
   "Resta los elementos de un lista."
-[]
+  [lae]
+  (cond
+    (empty? lae) (generar-mensaje-error :wrong-number-args-oper '-)
+    :else (let [wrong-type-args (filter (comp not number?) lae)]
+      (cond
+        (not (empty? wrong-type-args))
+          (cond
+            (= 0 (.indexOf lae (first wrong-type-args))) (generar-mensaje-error :wrong-type-arg1 '- (first wrong-type-args))
+            :else (generar-mensaje-error :wrong-type-arg2 '- (first wrong-type-args))
+          )
+        :else (apply - lae)
+      )
+    )
+  )
 )
 
 ; user=> (fnc-menor ())
@@ -748,7 +844,23 @@
 ; (;ERROR: <: Wrong type in arg2 A)
 (defn fnc-menor
   "Devuelve #t si los numeros de una lista estan en orden estrictamente creciente; si no, #f."
-[]
+  [lae]
+  (cond
+    (empty? lae) (symbol "#t")
+    :else (let [wrong-type-args (filter (comp not number?) lae)]
+      (cond
+        (not (empty? wrong-type-args))
+          (cond
+            (= 0 (.indexOf lae (first wrong-type-args))) (generar-mensaje-error :wrong-type-arg1 '< (first wrong-type-args))
+            :else (generar-mensaje-error :wrong-type-arg2 '< (first wrong-type-args))
+          )
+        :else (cond
+          (apply < lae) (symbol "#t")
+          :else (symbol "#f")
+        )
+      )
+    )
+  )
 )
 
 ; user=> (fnc-mayor ())
@@ -773,7 +885,23 @@
 ; (;ERROR: >: Wrong type in arg2 A)
 (defn fnc-mayor
   "Devuelve #t si los numeros de una lista estan en orden estrictamente decreciente; si no, #f."
-[]
+  [lista]
+  (cond
+    (empty? lista) (symbol "#t")
+    :else (let [wrong-type-args (filter (comp not number?) lista)]
+      (cond
+        (not (empty? wrong-type-args))
+          (cond
+            (= 0 (.indexOf lista (first wrong-type-args))) (generar-mensaje-error :wrong-type-arg1 '> (first wrong-type-args))
+            :else (generar-mensaje-error :wrong-type-arg2 '> (first wrong-type-args))
+          )
+        :else (cond
+          (apply > lista) (symbol "#t")
+          :else (symbol "#f")
+        )
+      )
+    )
+  )
 )
 
 ; user=> (fnc-mayor-o-igual ())
@@ -798,7 +926,23 @@
 ; (;ERROR: >=: Wrong type in arg2 A)
 (defn fnc-mayor-o-igual
   "Devuelve #t si los numeros de una lista estan en orden decreciente; si no, #f."
-[]
+  [lista]
+  (cond
+    (empty? lista) (symbol "#t")
+    :else (let [wrong-type-args (filter (comp not number?) lista)]
+      (cond
+        (not (empty? wrong-type-args))
+          (cond
+            (= 0 (.indexOf lista (first wrong-type-args))) (generar-mensaje-error :wrong-type-arg1 '>= (first wrong-type-args))
+            :else (generar-mensaje-error :wrong-type-arg2 '>= (first wrong-type-args))
+          )
+        :else (cond
+          (apply >= lista) (symbol "#t")
+          :else (symbol "#f")
+        )
+      )
+    )
+  )
 )
 
 ; user=> (evaluar-escalar 32 '(x 6 y 11 z "hola"))
@@ -813,7 +957,13 @@
 ; ((;ERROR: unbound variable: n) (x 6 y 11 z "hola"))
 (defn evaluar-escalar
   "Evalua una expresion escalar. Devuelve una lista con el resultado y un ambiente."
-[]
+  [escalar amb]
+  (cond
+    (number? escalar) (list escalar amb)
+    (string? escalar) (list escalar amb)
+    (.contains amb escalar) (list (get (vec amb) (+ 1 (.indexOf amb escalar))) amb)
+    :else (list (generar-mensaje-error :unbound-variable escalar) amb)
+  )
 )
 
 ; user=> (evaluar-define '(define x 2) '(x 1))
@@ -834,7 +984,25 @@
 ; ((;ERROR: define: bad variable (define 2 x)) (x 1))
 (defn evaluar-define
   "Evalua una expresion `define`. Devuelve una lista con el resultado y un ambiente actualizado con la definicion."
-[]
+  [expre amb]
+  (cond
+    (not= 3 (count expre)) (list (generar-mensaje-error :missing-or-extra 'define expre) amb)
+    (seq? (second expre)) (cond
+        (empty? (second expre)) (list (generar-mensaje-error :bad-variable 'define expre) amb)
+        :else (let [fn-nombre (first (second expre)),
+          fn-args (rest (second expre))
+          fn-body (nth expre 2)]
+          (list (symbol "#<void>") (actualizar-amb amb fn-nombre (list 'lambda fn-args fn-body)))
+        )
+    )
+    :else (cond
+      (number? (second expre)) (list (generar-mensaje-error :bad-variable 'define expre) amb)
+      :else (let [res (evaluar (nth expre 2) amb)]
+        (list (symbol "#<void>") (actualizar-amb (second res) (second expre) (first res)))
+      )
+      
+    )
+  )
 )
 
 ; user=> (evaluar-if '(if 1 2) '(n 7))
@@ -855,7 +1023,7 @@
 ; ((;ERROR: if: missing or extra expression (if 1)) (n 7))
 (defn evaluar-if
   "Evalua una expresion `if`. Devuelve una lista con el resultado y un ambiente eventualmente modificado."
-[]
+  [expre amb]
 )
 
 ; user=> (evaluar-or (list 'or) (list (symbol "#f") (symbol "#f") (symbol "#t") (symbol "#t")))
@@ -885,7 +1053,7 @@
 ; ((;ERROR: set!: bad variable 1) (x 0))
 (defn evaluar-set!
   "Evalua una expresion `set!`. Devuelve una lista con el resultado y un ambiente actualizado con la redefinicion."
-[]
+  []
 )
 
 ; Al terminar de cargar el archivo en el REPL de Clojure, se debe devolver true.
