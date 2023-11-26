@@ -601,12 +601,11 @@
 (defn actualizar-amb
   "Devuelve un ambiente actualizado con una clave (nombre de la variable o funcion) y su valor. 
   Si el valor es un error, el ambiente no se modifica. De lo contrario, se le carga o reemplaza la nueva informacion."
-  [amb key value] (cond
-    (error? value) amb
-    (.contains amb key) (seq (assoc (vec amb) (+ 1 (.indexOf amb key)) value))
-    :else (concat amb (list key value))
-  )
-)
+  [amb key value]
+  (if (error? value) amb
+      (let [index (.indexOf (take-nth 2 amb) key)]
+            (if (= -1 index) (concat amb (list key value))
+                (seq (assoc (vec amb) (+ 1 (* 2 index)) value))))))
 
 ; user=> (buscar 'c '(a 1 b 2 c 3 d 4 e 5))
 ; 3
@@ -616,11 +615,9 @@
   "Busca una clave en un ambiente (una lista con claves en las posiciones impares [1, 3, 5...] y valores en las pares [2, 4, 6...]
    y devuelve el valor asociado. Devuelve un error :unbound-variable si no la encuentra."
   [key amb]
-  (cond
-    (and (.contains amb key) (even? (.indexOf amb key))) (get (vec amb) (+ 1 (.indexOf amb key)))
-    :else (generar-mensaje-error :unbound-variable key)
-  )
-)
+  (let [index (.indexOf (take-nth 2 amb) key)]
+        (if (= -1 index) (generar-mensaje-error :unbound-variable key)
+            (get (vec amb) (+ 1 (* 2 index))))))
 
 ; user=> (error? (list (symbol ";ERROR:") 'mal 'hecho))
 ; true
@@ -736,7 +733,7 @@
   :else (let [result (fnc-read-aux (read-line))]
               (try
               (Integer/parseInt result)
-              (catch Exception e result)))))
+              (catch Exception e (read-string result))))))
 
 
 ; user=> (fnc-sumar ())
@@ -946,6 +943,8 @@
   (cond
     (number? escalar) (list escalar amb)
     (string? escalar) (list escalar amb)
+    (= (symbol "#f") escalar) (list escalar amb)
+    (= (symbol "#t") escalar) (list escalar amb)
     (.contains amb escalar) (let [index (.indexOf amb escalar)]
                                 (if (odd? index) (list (generar-mensaje-error :unbound-variable escalar) amb)
                                     (list (get (vec amb) (+ 1 index)) amb)))
@@ -1016,16 +1015,18 @@
   (if
   (> 3 (count expre))
   (list (generar-mensaje-error :missing-or-extra 'set! expre) amb)
-  (let [condition (second expre),
+  (let [res (evaluar (second expre) amb),
+        condition (first res),
+        nuevo-amb (second res),
         t-branch (nth expre 2),
         f-branch (if (= 4 (count expre)) (nth expre 3) nil)]
         (if
           (= condition (symbol "#f"))
           (if
             (= f-branch nil)
-            (list (symbol "#<void>") amb)
-            (evaluar f-branch amb))
-          (evaluar t-branch amb)))))
+            (list (symbol "#<void>") nuevo-amb)
+            (evaluar f-branch nuevo-amb))
+          (evaluar t-branch nuevo-amb)))))
 
 (defn evaluar-or-aux
   [args amb]
@@ -1034,9 +1035,7 @@
   :else (let [res (evaluar (first args) amb),
               valor (first res),
               nuevo-amb (second res)]
-              (cond
-              (= (symbol "#f") valor) (evaluar-or-aux (rest args) nuevo-amb)
-              :else res))))
+              (if (= (symbol "#f") valor) (evaluar-or-aux (rest args) nuevo-amb) res))))
 
 ; user=> (evaluar-or (list 'or) (list (symbol "#f") (symbol "#f") (symbol "#t") (symbol "#t")))
 ; (#f (#f #f #t #t))

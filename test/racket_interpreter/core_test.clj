@@ -21,13 +21,17 @@
   (testing "Actualizar ambiente test"
     (is (= '(a 1 b 2 c 3 d 4) (actualizar-amb '(a 1 b 2 c 3) 'd 4)))
     (is (= '(a 1 b 4 c 3) (actualizar-amb '(a 1 b 2 c 3) 'b 4)))
+    (is (= '(a b b 4 c 3) (actualizar-amb '(a b b 2 c 3) 'b 4)))
+    (is (= '(a d b 2 c 3 d 4) (actualizar-amb '(a d b 2 c 3) 'd 4)))
     (is (= '(a 1 b 2 c 3) (actualizar-amb '(a 1 b 2 c 3) 'b (list (symbol ";ERROR:") 'mal 'hecho))))
     (is (= '(b 7) (actualizar-amb () 'b 7)))))
 
 (deftest buscar-test
   (testing "Buscar test"
     (is (= 3 (buscar 'c '(a 1 b 2 c 3 d 4 e 5))))
-    (is (error? (buscar 'f '(a 1 b 2 c 3 d 4 e 5))))))
+    (is (= 'a (buscar 'a '(a a b 2 c 3 d 4 e 5))))
+    (is (error? (buscar 'f '(a 1 b 2 c 3 d 4 e 5))))
+    (is (error? (buscar 'f '(a f b 2 c 3 d 4 e 5))))))
 
 (deftest proteger-bool-en-str-test
   (testing "Proteger bool en str test"
