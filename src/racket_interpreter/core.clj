@@ -1,3 +1,6 @@
+(ns racket-interpreter.core
+  (:gen-class))
+
 (require '[clojure.string :as st :refer [blank? starts-with? ends-with? lower-case]]
          '[clojure.java.io :refer [delete-file reader]]
          '[clojure.walk :refer [postwalk postwalk-replace]])
@@ -73,6 +76,7 @@
 (declare evaluar-clausulas-de-cond)
 (declare evaluar-secuencia-en-cond)
 
+(defn -main [& args] (repl))
 
 (defn repl
   "Inicia el REPL de Racket."
@@ -122,7 +126,12 @@
         (= (first expre) 'enter!) (evaluar-enter! expre amb)
         (= (first expre) 'lambda) (evaluar-lambda expre amb)
         (= (first expre) 'exit)   (evaluar-exit   expre amb)
-
+        (= (first expre) 'cond)   (evaluar-cond   expre amb)
+        (= (first expre) 'eval)   (evaluar-eval   expre amb)
+        (= (first expre) 'set!)   (evaluar-set!   expre amb)
+        (= (first expre) 'if)     (evaluar-if     expre amb)
+        (= (first expre) 'quote)  (evaluar-quote  expre amb)
+        (= (first expre) 'or)     (evaluar-or     expre amb)
          ;
          ;
          ;
@@ -556,17 +565,12 @@
   "Lee una cadena desde la terminal/consola. Si contiene parentesis de menos al presionar Enter/Intro,
   se considera que la cadena ingresada es una subcadena y el ingreso continua. De lo contrario, se la
   devuelve completa (si corresponde, advirtiendo previamente que hay parentesis de mas)."
-  ([] (leer-entrada (read-line) 0))
-  ([cadena offset]
-    (let [nuevo-offset (+ offset (verificar-parentesis cadena))]
-      (cond
-        (= nuevo-offset 0) cadena
-        (> nuevo-offset 0) (str cadena (leer-entrada (read-line) nuevo-offset))
-        :else (do (print ";WARNING: unexpected \")\"#<input-port 0>") cadena)
-      )
-    )
-  )
-)
+  ([] (leer-entrada (read-line)))
+  ([cadena] (let [offset (verificar-parentesis cadena)]
+                (cond
+                (= offset 0) cadena
+                (< offset 0) (do (imprimir (generar-mensaje-error :warning-paren)) cadena)
+                :else (leer-entrada (str cadena (read-line)))))))
 
 ; user=> (verificar-parentesis "(hola 'mundo")
 ; 1
@@ -597,7 +601,7 @@
 (defn actualizar-amb
   "Devuelve un ambiente actualizado con una clave (nombre de la variable o funcion) y su valor. 
   Si el valor es un error, el ambiente no se modifica. De lo contrario, se le carga o reemplaza la nueva informacion."
-[amb key value] (cond
+  [amb key value] (cond
     (error? value) amb
     (.contains amb key) (seq (assoc (vec amb) (+ 1 (.indexOf amb key)) value))
     :else (concat amb (list key value))
@@ -648,18 +652,13 @@
         (clojure.string/replace
           cadena
           #"#F"
-          "%F"
-        )
+          "%F")
         #"#T"
-        "%T"
-      )
+        "%T")
       #"#f"
-      "%f"
-    )
+      "%f")
     #"#t"
-    "%t"
-  )
-)
+    "%t"))
 
 ; user=> (restaurar-bool (read-string (proteger-bool-en-str "(and (or #F #f #t #T) #T)")))
 ; (and (or #F #f #t #T) #T)
@@ -692,11 +691,11 @@
 ; user=> (fnc-equal? '(A))
 ; #t
 ; user=> (fnc-equal? '(A a))
-; #t
+; #f
 ; user=> (fnc-equal? '(A a A))
-; #t
+; #f
 ; user=> (fnc-equal? '(A a A a))
-; #t
+; #f
 ; user=> (fnc-equal? '(A a A B))
 ; #f
 ; user=> (fnc-equal? '(1 1 1 1))
@@ -706,23 +705,17 @@
 (defn fnc-equal?
   "Compara elementos. Si son iguales, devuelve #t. Si no, #f."
   [lae]
-  (cond
-    (empty? lae) (symbol "#t")
-    (every? number? lae)
-      (cond
-        (reduce (fn [x y] (and x y)) (map (partial = (first lae)) lae)) (symbol "#t")
-        :else (symbol "#f")
-      )
-    (every? symbol? lae)
-      (let [lae-simplificada (map (fn [x] (symbol (.toUpperCase (str x)))) lae)]
-        (cond
-          (reduce (fn [x y] (and x y)) (map (partial = (first lae-simplificada)) lae-simplificada)) (symbol "#t")
-          :else (symbol "#f")
-        )
-      )
-    :else (symbol "#f")
-  )
-)
+  (if (empty? lae) (symbol "#t")
+                  (if
+                  (reduce (fn [x y] (and x y)) (map (partial = (first lae)) lae))
+                  (symbol "#t") (symbol "#f"))))
+
+(defn fnc-read-aux
+[cadena] (let [offset (verificar-parentesis cadena)]
+              (cond
+              (= offset 0) cadena
+              (< offset 0) (do (print ";WARNING: unexpected \")\"#<input-port 0>") cadena)
+              :else (fnc-read-aux (str cadena (read-line))))))
 
 ; user=> (fnc-read ())
 ; (hola
@@ -736,23 +729,15 @@
 ; (;ERROR: Wrong number of args given #<primitive-procedure read>)
 (defn fnc-read
   "Devuelve la lectura de un elemento de Racket desde la terminal/consola."
-  ([lae]
-    (cond
-      (= 1 (count lae)) (generar-mensaje-error :io-ports-not-implemented 'read)
-      (< 1 (count lae)) (generar-mensaje-error :wrong-number-args-prim-proc 'read)
-      :else (fnc-read (read-line) 0)
-    )
-  )
-  ([cadena offset]
-    (let [nuevo-offset (+ offset (verificar-parentesis cadena))]
-      (cond
-        (= nuevo-offset 0) cadena
-        (> nuevo-offset 0) (str cadena (leer-entrada (read-line) nuevo-offset))
-        :else (do (print ";WARNING: unexpected \")\"#<input-port 0>") cadena)
-      )
-    )
-  )
-)
+  [lae]
+  (cond
+  (= 1 (count lae)) (generar-mensaje-error :io-ports-not-implemented 'read)
+  (< 1 (count lae)) (generar-mensaje-error :wrong-number-args-prim-proc 'read)
+  :else (let [result (fnc-read-aux (read-line))]
+              (try
+              (Integer/parseInt result)
+              (catch Exception e result)))))
+
 
 ; user=> (fnc-sumar ())
 ; 0
@@ -961,10 +946,14 @@
   (cond
     (number? escalar) (list escalar amb)
     (string? escalar) (list escalar amb)
-    (.contains amb escalar) (list (get (vec amb) (+ 1 (.indexOf amb escalar))) amb)
-    :else (list (generar-mensaje-error :unbound-variable escalar) amb)
-  )
-)
+    (.contains amb escalar) (let [index (.indexOf amb escalar)]
+                                (if (odd? index) (list (generar-mensaje-error :unbound-variable escalar) amb)
+                                    (list (get (vec amb) (+ 1 index)) amb)))
+    :else (list (generar-mensaje-error :unbound-variable escalar) amb)))
+
+;; Devuelve el nombre si es válido, error con la expresión en caso contrario
+(defn validar-nombre [nombre expre]
+  (if (number? nombre) (generar-mensaje-error :bad-variable 'define expre) nombre))
 
 ; user=> (evaluar-define '(define x 2) '(x 1))
 ; (#<void> (x 2))
@@ -985,25 +974,25 @@
 (defn evaluar-define
   "Evalua una expresion `define`. Devuelve una lista con el resultado y un ambiente actualizado con la definicion."
   [expre amb]
-  (cond
-    (not= 3 (count expre)) (list (generar-mensaje-error :missing-or-extra 'define expre) amb)
-    (seq? (second expre)) (cond
-        (empty? (second expre)) (list (generar-mensaje-error :bad-variable 'define expre) amb)
-        :else (let [fn-nombre (first (second expre)),
-          fn-args (rest (second expre))
-          fn-body (nth expre 2)]
-          (list (symbol "#<void>") (actualizar-amb amb fn-nombre (list 'lambda fn-args fn-body)))
-        )
-    )
-    :else (cond
-      (number? (second expre)) (list (generar-mensaje-error :bad-variable 'define expre) amb)
-      :else (let [res (evaluar (nth expre 2) amb)]
-        (list (symbol "#<void>") (actualizar-amb (second res) (second expre) (first res)))
-      )
-      
-    )
-  )
-)
+  (if
+  (seq? (second expre)) (cond
+                        (> 3 (count expre)) (list (generar-mensaje-error :missing-or-extra 'define expre) amb)
+                        (empty? (second expre)) (list (generar-mensaje-error :bad-variable 'define expre) amb)
+                        :else (let [fn-nombre (first (second expre)),
+                                    fn-args (rest (second expre))
+                                    fn-bodies (drop 2 expre)]
+                                    (list
+                                    (symbol "#<void>")
+                                    (actualizar-amb amb fn-nombre (concat (list 'lambda fn-args) fn-bodies)))))
+  (if (not= 3 (count expre))
+      (list (generar-mensaje-error :missing-or-extra 'define expre) amb)
+      (let [nombre (validar-nombre (second expre) expre),
+            res (evaluar (nth expre 2) amb),
+            nuevo-amb (second res),
+            valor (first res)]
+            (if (error? nombre)
+                (list nombre amb)
+                (list (symbol "#<void>") (actualizar-amb nuevo-amb nombre valor)))))))
 
 ; user=> (evaluar-if '(if 1 2) '(n 7))
 ; (2 (n 7))
@@ -1024,7 +1013,30 @@
 (defn evaluar-if
   "Evalua una expresion `if`. Devuelve una lista con el resultado y un ambiente eventualmente modificado."
   [expre amb]
-)
+  (if
+  (> 3 (count expre))
+  (list (generar-mensaje-error :missing-or-extra 'set! expre) amb)
+  (let [condition (second expre),
+        t-branch (nth expre 2),
+        f-branch (if (= 4 (count expre)) (nth expre 3) nil)]
+        (if
+          (= condition (symbol "#f"))
+          (if
+            (= f-branch nil)
+            (list (symbol "#<void>") amb)
+            (evaluar f-branch amb))
+          (evaluar t-branch amb)))))
+
+(defn evaluar-or-aux
+  [args amb]
+  (cond
+  (empty? args) (list (symbol "#f") amb)
+  :else (let [res (evaluar (first args) amb),
+              valor (first res),
+              nuevo-amb (second res)]
+              (cond
+              (= (symbol "#f") valor) (evaluar-or-aux (rest args) nuevo-amb)
+              :else res))))
 
 ; user=> (evaluar-or (list 'or) (list (symbol "#f") (symbol "#f") (symbol "#t") (symbol "#t")))
 ; (#f (#f #f #t #t))
@@ -1038,7 +1050,7 @@
 ; (#f (#f #f #t #t))
 (defn evaluar-or
   "Evalua una expresion `or`.  Devuelve una lista con el resultado y un ambiente."
-[]
+  [expre amb] (evaluar-or-aux (rest expre) amb)
 )
 
 ; user=> (evaluar-set! '(set! x 1) '(x 0))
@@ -1053,8 +1065,21 @@
 ; ((;ERROR: set!: bad variable 1) (x 0))
 (defn evaluar-set!
   "Evalua una expresion `set!`. Devuelve una lista con el resultado y un ambiente actualizado con la redefinicion."
-  []
+  [expre amb]
+  (if (not (= (count expre) 3)) ; si es el operador solo
+      (list (generar-mensaje-error :missing-or-extra 'set! expre) amb)
+      (let [key (second expre), valor (buscar key amb)]
+        (cond
+          (error? valor) (list valor amb)
+          (number? key) (generar-mensaje-error :bad-variable 'set! key)
+          :else (let [res (evaluar (nth expre 2) amb)]
+            (list (symbol "#<void>") (actualizar-amb (second res) key (first res)))
+          )
+        )
+      )
+  )
 )
 
 ; Al terminar de cargar el archivo en el REPL de Clojure, se debe devolver true.
 true
+
