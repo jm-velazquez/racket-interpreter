@@ -53,6 +53,7 @@
 (declare fnc-newline)
 (declare fnc-reverse)
 (declare fnc-mayor-o-igual)
+(declare fnc-odd?)
 
 ; Funciones auxiliares
 
@@ -87,7 +88,7 @@
                'display 'display 'enter! 'enter! 'env 'env 'equal? 'equal? 'eval 'eval 'exit 'exit
                'if 'if 'lambda 'lambda 'length 'length 'list 'list 'list? 'list?
                'newline 'newline 'nil (symbol "#f") 'not 'not 'null? 'null? 'or 'or 'quote 'quote
-               'read 'read 'reverse 'reverse 'set! 'set! (symbol "#f") (symbol "#f")
+               'read 'read 'reverse 'reverse 'set! 'set! 'odd? 'odd? (symbol "#f") (symbol "#f")
                (symbol "#t") (symbol "#t") '+ '+ '- '- '< '< '> '> '>= '>=) ""))
   ([amb ns]
    (if (empty? ns) (print ns) (pr ns)) (print "> ") (flush)
@@ -214,6 +215,7 @@
     (= fnc '<)            (fnc-menor lae)
     (= fnc '>)            (fnc-mayor lae)
     (= fnc '>=)           (fnc-mayor-o-igual lae)
+    (= fnc 'odd?)         (fnc-odd? lae)
 
     ;
     ; COMPLETAR
@@ -586,9 +588,7 @@
   "Cuenta los parentesis en una cadena, sumando 1 si `(`, restando 1 si `)`. Si el contador se hace negativo, para y retorna -1."
   [cadena]
   (let [frecuencias (clojure.walk/keywordize-keys (frequencies cadena))]
-    (max -1 (- (or (get frecuencias '\( ) 0) (or (get frecuencias '\)) 0)))
-  )
-)
+    (max -1 (- (or (get frecuencias '\( ) 0) (or (get frecuencias '\)) 0)))))
 
 ; user=> (actualizar-amb '(a 1 b 2 c 3) 'd 4)
 ; (a 1 b 2 c 3 d 4)
@@ -926,6 +926,14 @@
     )
   )
 )
+
+(defn fnc-odd?
+  [lae]
+  (let [ari (controlar-aridad-fnc lae 1 'odd?)]
+        (if (error? ari) ari
+            (let [arg (first lae)]
+                  (if (not (number? arg)) (generar-mensaje-error :wrong-type-arg 'odd? arg)
+                      (if (odd? arg) (symbol "#t") (symbol "#f")))))))
 
 ; user=> (evaluar-escalar 32 '(x 6 y 11 z "hola"))
 ; (32 (x 6 y 11 z "hola"))
